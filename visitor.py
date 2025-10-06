@@ -61,7 +61,7 @@ class MessagesFinder(Visitor):
                 self._current_channel = tree.children[0].value
                 if self._current_channel in self._channels:
                     message_dict = {
-                        "statement": self._actual_statement,
+                        "direction": self._actual_statement,
                         "send_channel": self._current_channel.split(self._channel_separator)[0],
                         "receive_channel": self._current_channel.split(self._channel_separator)[1],
                         "message": ""
