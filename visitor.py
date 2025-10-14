@@ -129,7 +129,6 @@ class QueryFinder(Visitor):
             self._processes[self._current_process] = []
 
     def statement(self, tree):
-        print(tree, self._current_process)
         if self._current_process and isinstance(tree.children[0], Tree):
             if tree.children[0].data == "func_content":
                 self._processes[self._current_process].append(

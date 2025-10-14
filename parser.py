@@ -1,7 +1,7 @@
-from lark import Lark
-from visitor import MessagesFinder, QueryFinder
-import pprint
 import json
+from lark import Lark
+
+from visitor import MessagesFinder, QueryFinder
 
 with open('deepsec.lark', 'r', encoding="utf-8") as grammar_file:
     grammar = grammar_file.read()
