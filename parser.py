@@ -22,8 +22,12 @@ query_finder = QueryFinder()
 query_finder.visit_topdown(tree)
 query_dict = {}
 for k, v in query_finder.output().items():
-    query_dict[k] = v
-
+    query_dict[k] = {
+        "z": "env"
+    }
+    for c in v:
+        protocol_letter = message_finder.name_to_process_letter.get(c, c)
+        query_dict[k][protocol_letter] = c
 with open("result.json", "w", encoding="utf-8") as result_file:
     json.dump(output_dict, result_file, indent=4)
 
@@ -33,7 +37,6 @@ with open("queries.json", "w", encoding="utf-8") as queries_file:
 with open("processes.txt", "w", encoding="utf-8") as processes_file:
     for process in output_dict.keys():
         processes_file.write(f"{process}\n")
-
 
 
 # print(tree.pretty())

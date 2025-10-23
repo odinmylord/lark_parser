@@ -18,6 +18,7 @@ class MessagesFinder(Visitor):
     _parenthesis_list = []
     _channels = set()
     _channel_separator = "2"
+    name_to_process_letter = {}
 
     def set_channel_separator(self, separator: str):
         self._channel_separator = separator
@@ -57,6 +58,9 @@ class MessagesFinder(Visitor):
 
     def func_content(self, tree):
         if self._actual_statement in ["in", "out"]:
+            if tree.children and tree.children[0] in self._channels:
+                index = int(self._actual_statement == "in")
+                self.name_to_process_letter[self._current_process] = tree.children[0].split(self._channel_separator)[index]
             if self._current_channel is None and len(tree.children) == 1:
                 self._current_channel = tree.children[0].value
                 if self._current_channel in self._channels:
