@@ -24,37 +24,37 @@ pub mod extraction {
             if self.direction == Direction::Out {
                 match &self.next {
                     None => f.write_str(&format!(
-                        "\r{}->{}: sent {}",
+                        "{}->{}: sent {}",
                         self.send_channel, self.recv_channel, self.statement
                     )),
                     Some(node) => match node.as_ref() {
                         Message::Node(n) => f.write_str(&format!(
-                            "\r{}->{}: sent {}{}",
+                            "{}->{}: sent {}{}",
                             self.send_channel, self.recv_channel, self.statement, n
                         )),
                         Message::BranchingNode(bn) => {
                             if let Some(if_branch) = &bn.if_branch {
                                 match if_branch.as_ref() {
                                     Message::Node(n) => {
-                                        f.write_str(&format!("\nalt if branch:\n{}\n", n))?;
+                                        f.write_str(&format!("\nalt if branch:{}\n", n))?;
                                     }
                                     Message::BranchingNode(bn) => {
-                                        f.write_str(&format!("\nalt if branch:\n{}", bn))?;
+                                        f.write_str(&format!("\nalt if branch:{}", bn))?;
                                     }
                                 }
                             }
                             if let Some(else_branch) = &bn.else_branch {
                                 match else_branch.as_ref() {
                                     Message::Node(n) => {
-                                        f.write_str(&format!("\nalt else branch:\n{}\n", n))?;
+                                        f.write_str(&format!("\nalt else branch:{}\n", n))?;
                                     }
                                     Message::BranchingNode(bn) => {
-                                        f.write_str(&format!("\nalt else branch:\n{}", bn))?;
+                                        f.write_str(&format!("\nalt else branch:{}", bn))?;
                                     }
                                 }
                             }
                             f.write_str(&format!(
-                                "\r{}->{}: sent {}{}",
+                                "{}->{}: sent {}{}",
                                 self.send_channel, self.recv_channel, self.statement, bn
                             ))
                         }
@@ -62,15 +62,15 @@ pub mod extraction {
                 }
             } else {
                 match self.next.as_ref() {
-                    None => f.write_str(&format!("received {}", self.statement)),
+                    None => f.write_str(&format!(" received {}", self.statement)),
                     Some(node) => match node.as_ref() {
                         Message::Node(n) => f.write_str(&format!(
-                            "\r\rreceived {}\n{}",
+                            " received {}\n{}",
                             self.statement,
                             n
                         )),
                         Message::BranchingNode(bn) => f.write_str(&format!(
-                            "\r\rreceived {}\n{}",
+                            " received {}\n{}",
                             self.statement,
                             bn
                         )),
@@ -113,17 +113,17 @@ pub mod extraction {
             if let Some(if_branch) = &self.if_branch {
                 match if_branch.as_ref() {
                     Message::Node(n) => {
-                        f.write_str(&format!("\n\ralt if branch:\n{}\n", n))?;
+                        f.write_str(&format!("\nalt if branch:\n{}", n))?;
                     }
                     Message::BranchingNode(bn) => {
-                        f.write_str(&format!("\n\ralt if branch:\n{}", bn))?;
+                        f.write_str(&format!("\nalt if branch:\n{}", bn))?;
                     }
                 }
             }
             if let Some(else_branch) = &self.else_branch {
                 match else_branch.as_ref() {
                     Message::Node(n) => {
-                        f.write_str(&format!("\nelse else branch:\n{}\n", n))?;
+                        f.write_str(&format!("\nelse else branch:\n{}", n))?;
                     }
                     Message::BranchingNode(bn) => {
                         f.write_str(&format!("\nelse else branch:\n{}", bn))?;
@@ -436,6 +436,7 @@ pub mod extraction {
         if processes.get(starting_process).is_none() {
             panic!("Invalid starting process name");
         }
+        // TODO consider case in which the environment starts with a branching node (do not know if possible)
         let mut processes_status: HashMap<String, Rc<RefCell<Option<Box<Message>>>>> =
             HashMap::new();
         for (process_name, status) in processes.iter() {
@@ -463,6 +464,7 @@ pub mod extraction {
             processes_status,
             protocol,
             queries,
+            String::from(""),
         );
         Process::new(protocol.to_string(), new_head)
     }
@@ -473,10 +475,11 @@ pub mod extraction {
         mut statuses: HashMap<String, Rc<RefCell<Option<Box<Message>>>>>,
         protocol: &ProtocolType,
         queries: &HashMap<ProtocolType, HashMap<String, String>>,
+        additional_string: String,
     ) -> Option<Box<Message>> {
         match *current_node {
             Message::Node(mut node) => {
-                let next_process = match node.direction {
+                let mut next_process = match node.direction {
                     Direction::In => queries
                         .get(protocol)
                         .expect("Malformed query mapping dictionary")
@@ -494,6 +497,10 @@ pub mod extraction {
                             &node.recv_channel
                         )),
                 };
+                let new_tmp_string = next_process.clone() + &additional_string;
+                if statuses.get(&new_tmp_string).is_some() {
+                    next_process = &new_tmp_string;
+                }
                 let next_node = statuses.get(next_process).unwrap().borrow().clone();
                 match next_node {
                     None => Some(Box::new(Message::Node(node))),
@@ -506,6 +513,7 @@ pub mod extraction {
                             statuses.clone(),
                             protocol,
                             queries,
+                            additional_string.clone(),
                         );
                         Some(Box::new(Message::Node(node)))
                     }
@@ -516,17 +524,25 @@ pub mod extraction {
                     None => None,
                     Some(if_node) => {
                         let if_branch_name = current_process.clone() + "_if";
+                        let new_additional_string = additional_string.clone() + "_if";
                         statuses.insert(
                             if_branch_name.clone(),
                             Rc::new(RefCell::new(Some(if_node.clone()))),
+                        );
+                        update_status(if_branch_name.clone(), &mut statuses, true);
+                        let statuses_deep_clone: HashMap<String, Rc<RefCell<Option<Box<Message>>>>> = HashMap::from_iter(
+                            statuses
+                                .iter()
+                                .map(|(k, v)| (k.clone(), Rc::new(RefCell::new(v.borrow().clone())))),
                         );
                         let res = visit_in_order_rec(
                             if_node,
                             &if_branch_name,
                             processes,
-                            statuses.clone(),
+                            statuses_deep_clone,
                             protocol,
                             queries,
+                            new_additional_string
                         );
                         statuses.remove(&if_branch_name);
                         res
@@ -536,18 +552,27 @@ pub mod extraction {
                     None => None,
                     Some(else_node) => {
                         let else_branch_name = current_process.clone() + "_else";
+                        let new_additional_string = additional_string + "_else";
                         statuses.insert(
                             else_branch_name.clone(),
                             Rc::new(RefCell::new(Some(else_node.clone()))),
+                        );
+                        update_status(else_branch_name.clone(), &mut statuses, false);
+                        let statuses_deep_clone: HashMap<String, Rc<RefCell<Option<Box<Message>>>>> = HashMap::from_iter(
+                            statuses
+                                .iter()
+                                .map(|(k, v)| (k.clone(), Rc::new(RefCell::new(v.borrow().clone())))),
                         );
                         let res = visit_in_order_rec(
                             else_node,
                             &else_branch_name,
                             processes,
-                            statuses.clone(),
+                            statuses_deep_clone,
                             protocol,
                             queries,
+                            new_additional_string
                         );
+
                         statuses.remove(&else_branch_name);
                         res
                     }

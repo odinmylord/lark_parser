@@ -11,6 +11,8 @@ mod tree;
 use tree::extraction::Process;
 mod parser;
 use parser::ParserNode;
+mod utils;
+use utils::output_cleaner;
 
 use crate::tree::extraction::visit_in_order;
 
@@ -48,13 +50,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         processes.insert(process_name, new_process);
     }
     // dbg!(&processes.get("env").unwrap().messages.as_ref().unwrap());
-    dbg!(&processes);
     let real_world = visit_in_order(
         &"env".to_string(),
         &processes,
         &ProtocolType::Real,
         &queries_map,
     );
-    // dbg!(real_world.messages.as_ref().unwrap());
+    let mut result_string = format!("{}", real_world.messages.as_ref().unwrap());
+    result_string = output_cleaner(result_string);
+    fs::write("output_sequence_diagram.txt", result_string)?;
+    // dbg!(&real_world.messages);
     Ok(())
 }
