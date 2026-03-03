@@ -10,6 +10,9 @@ pub mod extraction {
         str::FromStr,
     };
 
+    static SEQUENCE_DIAGRAM_MODE: bool = false;
+    static SEPARATOR: &str = "2";
+
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Direction {
         In,
@@ -30,15 +33,37 @@ pub mod extraction {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             if self.direction == Direction::Out {
                 match &self.next {
-                    None => f.write_str(&format!(
-                        "{}->{}: sent {}",
-                        self.send_channel, self.recv_channel, self.statement
-                    )),
+                    None => {
+                        if SEQUENCE_DIAGRAM_MODE {
+                            f.write_str(&format!(
+                                "{}->{}: sent {}",
+                                self.send_channel, self.recv_channel, self.statement
+                            ))
+                        } else {
+                            f.write_str(&format!(
+                                "out({}{}{},{});\n.",
+                                self.send_channel, SEPARATOR, self.recv_channel, self.statement
+                            ))
+                        }
+                    }
                     Some(node) => match node.as_ref() {
-                        Message::Node(n) => f.write_str(&format!(
-                            "{}->{}: sent {}{}",
-                            self.send_channel, self.recv_channel, self.statement, n
-                        )),
+                        Message::Node(n) => {
+                            if SEQUENCE_DIAGRAM_MODE {
+                                f.write_str(&format!(
+                                    "{}->{}: sent {}{}",
+                                    self.send_channel, self.recv_channel, self.statement, n
+                                ))
+                            } else {
+                                f.write_str(&format!(
+                                    "out({}{}{},{});\n{}",
+                                    self.send_channel,
+                                    SEPARATOR,
+                                    self.recv_channel,
+                                    self.statement,
+                                    n
+                                ))
+                            }
+                        }
                         Message::BranchingNode(bn) => {
                             if let Some(if_branch) = &bn.if_branch {
                                 match if_branch.as_ref() {
@@ -69,10 +94,27 @@ pub mod extraction {
                 }
             } else {
                 match self.next.as_ref() {
-                    None => f.write_str(&format!(" received {}", self.statement)),
+                    None => {
+                        if SEQUENCE_DIAGRAM_MODE {
+                            f.write_str(&format!(" received {}", self.statement))
+                        } else {
+                            f.write_str(&format!(
+                                "in({}{}{},{}); let ={} = {} in\n.",
+                                self.send_channel, SEPARATOR, self.recv_channel, self.statement, self.statement, self.statement
+                            ))
+                        }
+                    }
                     Some(node) => match node.as_ref() {
                         Message::Node(n) => {
-                            f.write_str(&format!(" received {}\n{}", self.statement, n))
+                            if SEQUENCE_DIAGRAM_MODE{
+                                f.write_str(&format!(" received {}\n{}", self.statement, n))
+                            }
+                            else {
+                                f.write_str(&format!(
+                                    "in({}{}{},{}); let ={} = {} in\n{}",
+                                    self.send_channel, SEPARATOR, self.recv_channel, self.statement, self.statement, self.statement, n
+                                ))
+                            }
                         }
                         Message::BranchingNode(bn) => {
                             f.write_str(&format!(" received {}\n{}", self.statement, bn))
@@ -140,11 +182,15 @@ pub mod extraction {
     }
 
     impl BranchingNode {
-        fn new(if_branch: Option<Box<Message>>, else_branch: Option<Box<Message>>, statement: Option<String>) -> Self {
+        fn new(
+            if_branch: Option<Box<Message>>,
+            else_branch: Option<Box<Message>>,
+            statement: Option<String>,
+        ) -> Self {
             BranchingNode {
                 if_branch,
                 else_branch,
-                statement
+                statement,
             }
         }
 
@@ -221,8 +267,9 @@ pub mod extraction {
                             )))
                         }
                         None => {
-                            let mut result =
-                                Box::new(Message::BranchingNode(BranchingNode::new(None, None, None)));
+                            let mut result = Box::new(Message::BranchingNode(BranchingNode::new(
+                                None, None, None,
+                            )));
                             if let Some(if_branch_message) = &message.if_statem {
                                 Process::add_messages_recursively(
                                     if_branch_message,
@@ -439,7 +486,7 @@ pub mod extraction {
                 }
                 Some(node) => {
                     Process::append_message_recursively(node, message);
-                },
+                }
             }
         }
 
@@ -466,7 +513,7 @@ pub mod extraction {
         processes: &mut HashMap<String, Process>,
         protocol: &ProtocolType,
         queries: &HashMap<ProtocolType, HashMap<String, String>>,
-        variables_map: &HashMap<String, String>,
+        variables_map: &mut HashMap<String, String>,
     ) -> Process {
         if processes.get(starting_process).is_none() {
             panic!("Invalid starting process name");
@@ -474,9 +521,9 @@ pub mod extraction {
         // TODO consider case in which the environment starts with a branching node (do not know if possible)
         let mut processes_status: HashMap<String, Rc<RefCell<Option<Box<Message>>>>> =
             HashMap::new();
-            for (process_name, status) in processes.iter() {
-                processes_status.insert(
-                    process_name.clone(),
+        for (process_name, status) in processes.iter() {
+            processes_status.insert(
+                process_name.clone(),
                 Rc::new(RefCell::new(status.messages.clone())),
             );
         }
@@ -521,7 +568,7 @@ pub mod extraction {
         queries: &HashMap<ProtocolType, HashMap<String, String>>,
         additional_string: String,
         mut variable_count: i32,
-        variables_map: &HashMap<String, String>,
+        variables_map: &mut HashMap<String, String>,
     ) -> Option<Box<Message>> {
         match *current_node {
             Message::Node(mut node) => {
@@ -553,7 +600,10 @@ pub mod extraction {
                         skip_status_update = true;
                         // We have to fill in the gap with the potential next_node;
                         let options = find_next_process(&node.recv_channel, &mut statuses);
-                        dbg!(options.clone());
+                        variables_map.insert(
+                            "x".to_string() + &variable_count.to_string(),
+                            node.statement.clone(),
+                        );
                         if options.len() == 0 {
                             panic!(
                                 "No possible next process found for channel {}",
@@ -596,7 +646,9 @@ pub mod extraction {
                             }
                         };
                         // get the statement to insert in the out node by looking at the corresponding in node
-                        let out_statem = variables_map.get(&next_node_statem).unwrap_or(&next_node_statem);
+                        let out_statem = variables_map
+                            .get(&next_node_statem)
+                            .unwrap_or(&next_node_statem);
                         // create the new nodes to insert in the tree
                         let out_node = Node::new(
                             node.recv_channel.clone(),
@@ -618,13 +670,13 @@ pub mod extraction {
                                 panic!("Process {} not found in processes", next_process);
                             }
                             Some(process) => {
-                                process.append_message(Box::new(Message::Node(in_node.clone())));                                
+                                process.append_message(Box::new(Message::Node(in_node.clone())));
                             }
                         };
 
                         variable_count += 1;
                         next_process = next_process_name;
-                        
+
                         // node.next = Some(Box::new(Message::Node(in_node)));
                         Some(Box::new(Message::Node(out_node)))
                     }
@@ -720,7 +772,7 @@ pub mod extraction {
                 Some(Box::new(Message::BranchingNode(BranchingNode::new(
                     if_branch,
                     else_branch,
-                    None
+                    None,
                 ))))
             }
         }

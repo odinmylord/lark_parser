@@ -27,7 +27,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queries_list: HashMap<String, HashMap<String, String>> = serde_json::from_str(&queries)?;
     let mut queries_map: HashMap<ProtocolType, HashMap<String, String>> = HashMap::new();
     let variables = fs::read_to_string("variables_mapping.json")?;
-    let variables_map: HashMap<String, String> = serde_json::from_str(&variables)?;
+    let mut variables_map: HashMap<String, String> = serde_json::from_str(&variables)?;
     let json_data = fs::read_to_string("result.json")?;
     let data = serde_json::Deserializer::from_str(&json_data);
     let data: HashMap<String, Vec<ParserNode>> = parser::data_parser(data)?;
@@ -42,9 +42,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 values.insert("a".to_string(), "sim".to_string());
                 queries_map.insert(ProtocolType::Ideal, values);
             }
-            _ => {
-                ()
-            }
+            _ => (),
         }
     }
     for (process_name, messages) in data {
@@ -59,21 +57,28 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut processes,
         &ProtocolType::Real,
         &queries_map,
-        &variables_map,
+        &mut variables_map,
     );
     let mut result_string = format!("{}", real_world.messages.as_ref().unwrap());
     result_string = output_cleaner(result_string);
     fs::write("output_sequence_diagram.txt", result_string)?;
-    dbg!(&real_world);
     println!("----------------------------------");
     let ideal_world = visit_in_order(
         &"env".to_string(),
         &mut processes,
         &ProtocolType::Ideal,
         &queries_map,
-        &variables_map,
+        &mut variables_map,
     );
-    dbg!(&processes);
+    let mut sim_string = format!("{}", processes.get("sim").unwrap().messages.as_ref().unwrap());
+    for variable in variables_map.keys() {
+        let var_string = "=".to_string() + variable;
+        let mut new_string = variables_map[variable].clone();
+        new_string.insert_str(0, "=");
+        new_string = new_string.replace("=(", "(=");
+        sim_string = sim_string.replace(&var_string, &new_string);
+    }
+    print!("sim string: {}", sim_string);
     let mut result_string = format!("{}", ideal_world.messages.as_ref().unwrap());
     result_string = output_cleaner(result_string);
     fs::write("output_sequence_diagram_ideal.txt", result_string)?;
