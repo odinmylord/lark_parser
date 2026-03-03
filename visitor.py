@@ -19,6 +19,7 @@ class MessagesFinder(Visitor):
     _channels = set()
     _channel_separator = "2"
     name_to_process_letter = {}
+    variables_mapping = {}
 
     def set_channel_separator(self, separator: str):
         self._channel_separator = separator
@@ -27,6 +28,11 @@ class MessagesFinder(Visitor):
         if self._current_process is None:
             self._current_process = tree.children[0].children[0].value
             self._processes[self._current_process] = []
+
+        if tree.children[0].children[0].value == "=":
+            message = tree.children[0].children[1].value
+            variable_name = tree.children[-1].children[0].children[0].value
+            self.variables_mapping[variable_name] = message
 
     def channel_declaration(self, tree):
         channels = children_to_string(tree)
@@ -49,7 +55,7 @@ class MessagesFinder(Visitor):
                     self._parenthesis_list.remove(self._parenthesis_counter)
                     self._current_depth -= 1
         if not parenthesis_found and self._actual_statement in ["then", "else_statement"] and \
-            tree.children[0].data != self._actual_statement:
+                tree.children[0].data != self._actual_statement:
             self._single_line_in_branch = True
         elif parenthesis_found:
             self._actual_statement = "LPAR"
@@ -60,7 +66,8 @@ class MessagesFinder(Visitor):
         if self._actual_statement in ["in", "out"]:
             if tree.children and tree.children[0] in self._channels:
                 index = int(self._actual_statement == "in")
-                self.name_to_process_letter[self._current_process] = tree.children[0].split(self._channel_separator)[index]
+                self.name_to_process_letter[self._current_process] = tree.children[0].split(
+                    self._channel_separator)[index]
             if self._current_channel is None and len(tree.children) == 1:
                 self._current_channel = tree.children[0].value
                 if self._current_channel in self._channels:
@@ -121,6 +128,9 @@ class MessagesFinder(Visitor):
             current_list[-1]["message"] += message
         elif isinstance(message, dict):
             current_list.append(message)
+
+    def condition(self, tree):
+        self._processes[self._current_process][-1]["statem"] = children_to_string(tree)
 
 
 class QueryFinder(Visitor):

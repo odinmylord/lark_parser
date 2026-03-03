@@ -34,6 +34,9 @@ with open("result.json", "w", encoding="utf-8") as result_file:
 with open("queries.json", "w", encoding="utf-8") as queries_file:
     json.dump(query_dict, queries_file, indent=4)
 
+with open("variables_mapping.json", "w", encoding="utf-8") as var_map_file:
+    json.dump(message_finder.variables_mapping, var_map_file, indent=4)
+
 with open("processes.txt", "w", encoding="utf-8") as processes_file:
     for process in output_dict.keys():
         processes_file.write(f"{process}\n")
