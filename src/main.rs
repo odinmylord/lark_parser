@@ -14,7 +14,7 @@ use parser::ParserNode;
 mod utils;
 use utils::output_cleaner;
 
-use crate::tree::extraction::{visit_in_order};
+use crate::tree::extraction::{insert_branches, visit_in_order, SEQUENCE_DIAGRAM_MODE};
 
 #[derive(EnumStringify, Hash, PartialEq, Eq, Debug, Copy, Clone)]
 pub enum ProtocolType {
@@ -54,7 +54,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // hashmap to keep track of the variables that are used in the branching nodes for each protocol type
     let mut branches_variables: HashMap<ProtocolType, HashMap<String, String>> = HashMap::new();
     branches_variables.insert(ProtocolType::Real, HashMap::new());
-    branches_variables.insert(ProtocolType::Ideal,HashMap::new());
+    branches_variables.insert(ProtocolType::Ideal, HashMap::new());
 
     // hashmap to keep track of the statements before they are sent to the env
     let mut env_variables_map: HashMap<ProtocolType, HashMap<String, String>> = HashMap::new();
@@ -81,10 +81,11 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut branches_variables,
         &mut env_variables_map,
     );
-    //dbg!(ideal_world.messages.as_ref().unwrap());
-    dbg!(&branches_variables);
-    dbg!(&env_variables_map);
-    let mut sim_string = format!("{}", processes.get("sim").unwrap().messages.as_ref().unwrap());
+    let sim_process = insert_branches(processes.remove("sim").unwrap(), &mut branches_variables, &mut env_variables_map);
+    let mut sim_string = format!(
+        "{}",
+        sim_process.messages.as_ref().unwrap()
+    );
     for variable in variables_map.keys() {
         let var_string = "=".to_string() + variable;
         let mut new_string = variables_map[variable].clone();
@@ -92,9 +93,26 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         new_string = new_string.replace("=(", "(=");
         sim_string = sim_string.replace(&var_string, &new_string);
     }
-    print!("sim string: {}", sim_string);
-    let mut result_string = format!("{}", ideal_world.messages.as_ref().unwrap());
-    result_string = output_cleaner(result_string);
+    // this is the merge between real and ideal world in the env_variables_map
+    let mut sim_variables_map: HashMap<String, String> = HashMap::new();
+    for (vars, value) in env_variables_map.get(&ProtocolType::Real).unwrap() {
+        for (ideal_var, ideal_value) in env_variables_map.get(&ProtocolType::Ideal).unwrap() {
+            if value == ideal_value && ideal_var != vars && !sim_variables_map.contains_key(vars){
+                sim_variables_map.insert(ideal_var.clone(), vars.clone());
+            }
+        }
+    }
+    let mut result_string = format!("{}", sim_process.messages.as_ref().unwrap());
+    for (value, replacement) in sim_variables_map {
+        if value.starts_with("x"){
+            result_string = result_string.replace(&value, &replacement);
+        }
+    }
+    result_string = result_string.replace("\n\n", "\n");
+    println!("{}", &result_string);
+    if SEQUENCE_DIAGRAM_MODE {
+        result_string = output_cleaner(result_string);
+    }
     fs::write("output_sequence_diagram_ideal.txt", result_string)?;
     // dbg!(&real_world.messages);
     Ok(())

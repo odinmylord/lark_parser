@@ -1,6 +1,8 @@
+use crate::tree::extraction::Message;
+
 pub mod extraction {
     use crate::{parser::ParserNode, ProtocolType};
-    use core::panic;
+    use core::{net, panic};
     use log::debug;
     use std::{
         cell::RefCell,
@@ -10,7 +12,7 @@ pub mod extraction {
         str::FromStr,
     };
 
-    static SEQUENCE_DIAGRAM_MODE: bool = false;
+    pub static SEQUENCE_DIAGRAM_MODE: bool = false;
     static SEPARATOR: &str = "2";
 
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,7 +43,7 @@ pub mod extraction {
                             ))
                         } else {
                             f.write_str(&format!(
-                                "out({}{}{},{});\n.",
+                                "out({}{}{},{});\n",
                                 self.send_channel, SEPARATOR, self.recv_channel, self.statement
                             ))
                         }
@@ -68,27 +70,59 @@ pub mod extraction {
                             if let Some(if_branch) = &bn.if_branch {
                                 match if_branch.as_ref() {
                                     Message::Node(n) => {
-                                        f.write_str(&format!("\nalt if branch:{}\n", n))?;
+                                        if SEQUENCE_DIAGRAM_MODE {
+                                            f.write_str(&format!("\nalt if branch:{}\n", n))?;
+                                        }
+                                        else{
+                                            f.write_str(&format!("if 1=1 then (\n{}\n", n))?;
+                                        }
                                     }
                                     Message::BranchingNode(bn) => {
-                                        f.write_str(&format!("\nalt if branch:{}", bn))?;
+                                        if SEQUENCE_DIAGRAM_MODE{
+                                            f.write_str(&format!("\nalt if branch:{}", bn))?;
+                                        }
+                                        else {
+                                            f.write_str(&format!("if 1=1 then (\n{}", bn))?;
+                                        }
                                     }
                                 }
                             }
                             if let Some(else_branch) = &bn.else_branch {
                                 match else_branch.as_ref() {
                                     Message::Node(n) => {
-                                        f.write_str(&format!("\nalt else branch:{}\n", n))?;
+                                        if SEQUENCE_DIAGRAM_MODE {
+                                            f.write_str(&format!("\nalt else branch:{}\n", n))?;
+                                        }
+                                        else {
+                                            f.write_str(&format!(") else (\n{})\n", n))?;
+                                        }
                                     }
                                     Message::BranchingNode(bn) => {
-                                        f.write_str(&format!("\nalt else branch:{}", bn))?;
+                                        if SEQUENCE_DIAGRAM_MODE {
+                                            f.write_str(&format!("\nalt else branch:{}", bn))?;
+                                        }
+                                        else {
+                                            f.write_str(&format!(") else (\n{})\n", bn))?;
+                                        }
                                     }
                                 }
                             }
-                            f.write_str(&format!(
-                                "{}->{}: sent {}{}",
-                                self.send_channel, self.recv_channel, self.statement, bn
-                            ))
+                            if SEQUENCE_DIAGRAM_MODE {
+                                f.write_str(&format!(
+                                    "{}->{}: sent {}{}",
+                                    self.send_channel, self.recv_channel, self.statement, bn
+                                ))
+                            }
+                            else {
+                                f.write_str(&format!(
+                                    "out({}{}{},{});\n{}",
+                                    self.send_channel,
+                                    SEPARATOR,
+                                    self.recv_channel,
+                                    self.statement,
+                                    bn
+                                ))
+                            }
                         }
                     },
                 }
@@ -127,7 +161,21 @@ pub mod extraction {
                             }
                         }
                         Message::BranchingNode(bn) => {
-                            f.write_str(&format!(" received {}\n{}", self.statement, bn))
+                            if SEQUENCE_DIAGRAM_MODE {
+                                f.write_str(&format!(" received {}\n{}", self.statement, bn))
+                            }
+                            else {
+                                f.write_str(&format!(
+                                    "in({}{}{},{}); let ={} = {} in\n{}",
+                                    self.send_channel,
+                                    SEPARATOR,
+                                    self.recv_channel,
+                                    self.statement,
+                                    self.statement,
+                                    self.statement,
+                                    bn
+                                ))
+                            }
                         }
                     },
                 }
@@ -169,20 +217,40 @@ pub mod extraction {
             if let Some(if_branch) = &self.if_branch {
                 match if_branch.as_ref() {
                     Message::Node(n) => {
-                        f.write_str(&format!("\nalt if branch:\n{}", n))?;
+                        if SEQUENCE_DIAGRAM_MODE {
+                            f.write_str(&format!("\nalt if branch:\n{}", n))?;
+                        }
+                        else {
+                            f.write_str(&format!("if 1=1 then (\n{}\n", n))?;
+                        }
                     }
                     Message::BranchingNode(bn) => {
-                        f.write_str(&format!("\nalt if branch:\n{}", bn))?;
+                        if SEQUENCE_DIAGRAM_MODE {
+                            f.write_str(&format!("\nalt if branch:\n{}", bn))?;
+                        }
+                        else {
+                            f.write_str(&format!("if 1=1 then (\n{}", bn))?;
+                        }
                     }
                 }
             }
             if let Some(else_branch) = &self.else_branch {
                 match else_branch.as_ref() {
                     Message::Node(n) => {
-                        f.write_str(&format!("\nelse else branch:\n{}", n))?;
+                        if SEQUENCE_DIAGRAM_MODE {
+                            f.write_str(&format!("\nelse else branch:\n{}", n))?;
+                        }
+                        else {
+                            f.write_str(&format!(") else (\n{})\n", n))?;
+                        }
                     }
                     Message::BranchingNode(bn) => {
-                        f.write_str(&format!("\nelse else branch:\n{}", bn))?;
+                        if SEQUENCE_DIAGRAM_MODE {
+                            f.write_str(&format!("\nelse else branch:\n{}", bn))?;
+                        }
+                        else {
+                            f.write_str(&format!(") else (\n{})\n", bn))?;
+                        }
                     }
                 }
             }
@@ -585,7 +653,8 @@ pub mod extraction {
         variables_map: &mut HashMap<String, String>,
         branches: &mut HashMap<ProtocolType, HashMap<String, String>>,
         env_variable: &mut HashMap<ProtocolType, HashMap<String, String>>,
-    ) -> Option<Box<Message>> {        match *current_node {
+    ) -> Option<Box<Message>> {
+        match *current_node {
             Message::Node(mut node) => {
                 let mut next_process = match node.direction {
                     Direction::In => queries
@@ -704,14 +773,17 @@ pub mod extraction {
                         if !skip_status_update {
                             update_status(next_process.clone(), &mut statuses, false);
                         }
-                        if node.recv_channel == "e" && node.direction == Direction::Out && additional_string.len() > 0 { 
+                        if node.recv_channel == "e"
+                            && node.direction == Direction::Out
+                            && additional_string.len() > 0
+                        {
                             let internal_hashmap =
                                 branches.entry(*protocol).or_insert(HashMap::new());
                             // check if the additional string is already in the hashmap
                             if internal_hashmap.get(&additional_string).is_none() {
-                                internal_hashmap.insert(additional_string.clone(), node.statement.clone());
+                                internal_hashmap
+                                    .insert(additional_string.clone(), node.statement.clone());
                             }
-                            
                         }
                         node.next = visit_in_order_rec(
                             next_node,
@@ -732,7 +804,8 @@ pub mod extraction {
                                     if n.recv_channel == "e" && n.direction == Direction::In {
                                         let internal_hashmap =
                                             env_variable.entry(*protocol).or_insert(HashMap::new());
-                                        internal_hashmap.insert(node.statement.clone(), n.statement.clone());
+                                        internal_hashmap
+                                            .insert(node.statement.clone(), n.statement.clone());
                                     }
                                 }
                                 Message::BranchingNode(_) => {
@@ -880,5 +953,123 @@ pub mod extraction {
             },
         };
         statuses.insert(process_name, new_entry);
+    }
+
+    pub fn insert_branches(
+        process: Process,
+        branches: &mut HashMap<ProtocolType, HashMap<String, String>>,
+        env_variable: &mut HashMap<ProtocolType, HashMap<String, String>>,
+    ) -> Process {
+        let temp_mapping: HashMap<String, String>;
+        // revert the ideal world env_variable mapping
+        temp_mapping = env_variable
+            .get(&ProtocolType::Ideal)
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (v.clone(), k.clone()))
+            .collect();
+        let mut branches_statements: HashMap<String, String> = HashMap::new();
+        for (additional_string, statement) in branches.get(&ProtocolType::Real).unwrap() {
+            for (process_statem, env_statem) in env_variable.get(&ProtocolType::Real).unwrap() {
+                if statement == process_statem {
+                    branches_statements.insert(
+                        additional_string.clone(),
+                        temp_mapping.get(env_statem).unwrap().clone(),
+                    );
+                }
+            }
+        }
+        Process {
+            process_name: process.process_name,
+            messages: insert_branches_rec(process.messages.unwrap(), &branches_statements, "".to_string()),
+        }
+    }
+
+    fn insert_branches_rec(
+        node: Box<Message>,
+        branches_statements: &HashMap<String, String>,
+        additional_string: String,
+    ) -> Option<Box<Message>> {
+        match *node {
+            Message::Node(mut n) => match n.next {
+                None => Some(Box::new(Message::Node(n))),
+                Some(next_node) => match next_node.as_ref() {
+                    Message::Node(next_n) => {
+                        if branches_statements
+                            .values()
+                            .any(|val| val == &next_n.statement)
+                        {
+                            let additional_string_if = additional_string.clone() + "_if";
+                            let additional_string_else = additional_string.clone() + "_else";
+                            let new_next_node_if = insert_branches_rec(
+                                next_node.clone(),
+                                branches_statements,
+                                additional_string_if,
+                            );
+                            let new_next_node_else = insert_branches_rec(
+                                next_node.clone(),
+                                branches_statements,
+                                additional_string_else,
+                            );
+                            let new_branching_node = BranchingNode::new(
+                                new_next_node_if,
+                                new_next_node_else,
+                                Some(next_n.statement.clone()),
+                            );
+                            Some(Box::new(Message::BranchingNode(new_branching_node)))
+                        } else {
+                            n.next = insert_branches_rec(
+                                next_node,
+                                branches_statements,
+                                additional_string,
+                            );
+                            Some(Box::new(Message::Node(n)))
+                        }
+                    }
+                    Message::BranchingNode(_) => {
+                        n.next =
+                            insert_branches_rec(next_node, branches_statements, additional_string);
+                        Some(Box::new(Message::Node(n)))
+                    }
+                },
+            },
+            Message::BranchingNode(bn) => {
+                let if_branch = match bn.if_branch {
+                    None => None,
+                    Some(_) => {
+                        let additional_string_if = additional_string.clone() + "_if";
+                        let new_if_branch = match bn.if_branch {
+                            None => None,
+                            Some(if_node) => insert_branches_rec(
+                                if_node,
+                                branches_statements,
+                                additional_string_if,
+                            ),
+                        };
+                        new_if_branch
+                    }
+                };
+                let else_branch = match bn.else_branch {
+                    None => None,
+                    Some(_) => {
+                        let additional_string_else = additional_string.clone() + "_else";
+                        let new_else_branch = match bn.else_branch {
+                            None => None,
+                            Some(else_node) => insert_branches_rec(
+                                else_node,
+                                branches_statements,
+                                additional_string_else,
+                            ),
+                        };
+                        new_else_branch
+                    }
+                };
+                Some(Box::new(Message::BranchingNode(BranchingNode::new(
+                    if_branch,
+                    else_branch,
+                    bn.statement.clone(),
+                ))))
+            }
+        }
     }
 }
