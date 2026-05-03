@@ -14,9 +14,9 @@ use parser::ParserNode;
 mod utils;
 use utils::output_cleaner;
 
-use crate::tree::extraction::visit_in_order;
+use crate::tree::extraction::{visit_in_order};
 
-#[derive(EnumStringify, Hash, PartialEq, Eq, Debug)]
+#[derive(EnumStringify, Hash, PartialEq, Eq, Debug, Copy, Clone)]
 pub enum ProtocolType {
     Real,
     Ideal,
@@ -28,7 +28,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut queries_map: HashMap<ProtocolType, HashMap<String, String>> = HashMap::new();
     let variables = fs::read_to_string("variables_mapping.json")?;
     let mut variables_map: HashMap<String, String> = serde_json::from_str(&variables)?;
-    let json_data = fs::read_to_string("result.json")?;
+    let json_data = fs::read_to_string("result_no_sim.json")?;
     let data = serde_json::Deserializer::from_str(&json_data);
     let data: HashMap<String, Vec<ParserNode>> = parser::data_parser(data)?;
     let mut processes: HashMap<String, Process> = HashMap::new();
@@ -51,6 +51,13 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         new_process.add_messages(&messages);
         processes.insert(process_name, new_process);
     }
+    // hashmap to keep track of the variables that are used in the branching nodes for each protocol type
+    let mut branches_variables: HashMap<ProtocolType, HashMap<String, String>> = HashMap::new();
+    branches_variables.insert(ProtocolType::Real, HashMap::new());
+    branches_variables.insert(ProtocolType::Ideal,HashMap::new());
+
+    // hashmap to keep track of the statements before they are sent to the env
+    let mut env_variables_map: HashMap<ProtocolType, HashMap<String, String>> = HashMap::new();
     // dbg!(&processes.get("env").unwrap().messages.as_ref().unwrap());
     let real_world = visit_in_order(
         &"env".to_string(),
@@ -58,6 +65,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         &ProtocolType::Real,
         &queries_map,
         &mut variables_map,
+        &mut branches_variables,
+        &mut env_variables_map,
     );
     let mut result_string = format!("{}", real_world.messages.as_ref().unwrap());
     result_string = output_cleaner(result_string);
@@ -69,7 +78,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         &ProtocolType::Ideal,
         &queries_map,
         &mut variables_map,
+        &mut branches_variables,
+        &mut env_variables_map,
     );
+    //dbg!(ideal_world.messages.as_ref().unwrap());
+    dbg!(&branches_variables);
+    dbg!(&env_variables_map);
     let mut sim_string = format!("{}", processes.get("sim").unwrap().messages.as_ref().unwrap());
     for variable in variables_map.keys() {
         let var_string = "=".to_string() + variable;

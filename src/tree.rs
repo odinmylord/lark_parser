@@ -100,19 +100,29 @@ pub mod extraction {
                         } else {
                             f.write_str(&format!(
                                 "in({}{}{},{}); let ={} = {} in\n.",
-                                self.send_channel, SEPARATOR, self.recv_channel, self.statement, self.statement, self.statement
+                                self.send_channel,
+                                SEPARATOR,
+                                self.recv_channel,
+                                self.statement,
+                                self.statement,
+                                self.statement
                             ))
                         }
                     }
                     Some(node) => match node.as_ref() {
                         Message::Node(n) => {
-                            if SEQUENCE_DIAGRAM_MODE{
+                            if SEQUENCE_DIAGRAM_MODE {
                                 f.write_str(&format!(" received {}\n{}", self.statement, n))
-                            }
-                            else {
+                            } else {
                                 f.write_str(&format!(
                                     "in({}{}{},{}); let ={} = {} in\n{}",
-                                    self.send_channel, SEPARATOR, self.recv_channel, self.statement, self.statement, self.statement, n
+                                    self.send_channel,
+                                    SEPARATOR,
+                                    self.recv_channel,
+                                    self.statement,
+                                    self.statement,
+                                    self.statement,
+                                    n
                                 ))
                             }
                         }
@@ -514,6 +524,8 @@ pub mod extraction {
         protocol: &ProtocolType,
         queries: &HashMap<ProtocolType, HashMap<String, String>>,
         variables_map: &mut HashMap<String, String>,
+        branches: &mut HashMap<ProtocolType, HashMap<String, String>>,
+        env_variable: &mut HashMap<ProtocolType, HashMap<String, String>>,
     ) -> Process {
         if processes.get(starting_process).is_none() {
             panic!("Invalid starting process name");
@@ -538,7 +550,7 @@ pub mod extraction {
                 Some(node) => node.clone(),
             },
         };
-        if protocol == &ProtocolType::Ideal {
+        if protocol == &ProtocolType::Ideal && processes.get("sim").is_none() {
             processes.insert("sim".to_string(), Process::new("sim".to_string(), None));
             debug!("Ideal world");
         } else {
@@ -555,6 +567,8 @@ pub mod extraction {
             String::from(""),
             9000,
             variables_map,
+            branches,
+            env_variable,
         );
         Process::new(protocol.to_string(), new_head)
     }
@@ -569,8 +583,9 @@ pub mod extraction {
         additional_string: String,
         mut variable_count: i32,
         variables_map: &mut HashMap<String, String>,
-    ) -> Option<Box<Message>> {
-        match *current_node {
+        branches: &mut HashMap<ProtocolType, HashMap<String, String>>,
+        env_variable: &mut HashMap<ProtocolType, HashMap<String, String>>,
+    ) -> Option<Box<Message>> {        match *current_node {
             Message::Node(mut node) => {
                 let mut next_process = match node.direction {
                     Direction::In => queries
@@ -596,6 +611,7 @@ pub mod extraction {
                 }
                 let mut skip_status_update = false;
                 let next_node = match statuses.get(next_process) {
+                    // block to handle the creation of the new sim
                     None => {
                         skip_status_update = true;
                         // We have to fill in the gap with the potential next_node;
@@ -688,6 +704,15 @@ pub mod extraction {
                         if !skip_status_update {
                             update_status(next_process.clone(), &mut statuses, false);
                         }
+                        if node.recv_channel == "e" && node.direction == Direction::Out && additional_string.len() > 0 { 
+                            let internal_hashmap =
+                                branches.entry(*protocol).or_insert(HashMap::new());
+                            // check if the additional string is already in the hashmap
+                            if internal_hashmap.get(&additional_string).is_none() {
+                                internal_hashmap.insert(additional_string.clone(), node.statement.clone());
+                            }
+                            
+                        }
                         node.next = visit_in_order_rec(
                             next_node,
                             next_process,
@@ -698,7 +723,23 @@ pub mod extraction {
                             additional_string.clone(),
                             variable_count,
                             variables_map,
+                            branches,
+                            env_variable,
                         );
+                        if let Some(returned_node) = &node.next {
+                            match returned_node.as_ref() {
+                                Message::Node(n) => {
+                                    if n.recv_channel == "e" && n.direction == Direction::In {
+                                        let internal_hashmap =
+                                            env_variable.entry(*protocol).or_insert(HashMap::new());
+                                        internal_hashmap.insert(node.statement.clone(), n.statement.clone());
+                                    }
+                                }
+                                Message::BranchingNode(_) => {
+                                    ();
+                                }
+                            }
+                        };
                         Some(Box::new(Message::Node(node)))
                     }
                 }
@@ -731,6 +772,8 @@ pub mod extraction {
                             new_additional_string,
                             variable_count,
                             variables_map,
+                            branches,
+                            env_variable,
                         );
                         statuses.remove(&if_branch_name);
                         res
@@ -763,6 +806,8 @@ pub mod extraction {
                             new_additional_string,
                             variable_count,
                             variables_map,
+                            branches,
+                            env_variable,
                         );
 
                         statuses.remove(&else_branch_name);
