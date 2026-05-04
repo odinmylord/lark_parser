@@ -97,14 +97,20 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sim_variables_map: HashMap<String, String> = HashMap::new();
     for (vars, value) in env_variables_map.get(&ProtocolType::Real).unwrap() {
         for (ideal_var, ideal_value) in env_variables_map.get(&ProtocolType::Ideal).unwrap() {
+            if ideal_value.starts_with("rx") {
+                sim_variables_map.insert(ideal_value.clone(), ideal_var.clone());
+            }
             if value == ideal_value && ideal_var != vars && !sim_variables_map.contains_key(vars){
                 sim_variables_map.insert(ideal_var.clone(), vars.clone());
             }
         }
     }
     let mut result_string = format!("{}", sim_process.messages.as_ref().unwrap());
+    dbg!(&env_variables_map);
+    dbg!(&branches_variables);
+    dbg!(&sim_variables_map);
     for (value, replacement) in sim_variables_map {
-        if value.starts_with("x"){
+        if value.starts_with("x") || value.starts_with("rx"){
             result_string = result_string.replace(&value, &replacement);
         }
     }

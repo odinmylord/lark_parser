@@ -133,7 +133,7 @@ pub mod extraction {
                             f.write_str(&format!(" received {}", self.statement))
                         } else {
                             f.write_str(&format!(
-                                "in({}{}{},{}); let ={} = {} in\n.",
+                                "in({}{}{},{}); let =r{} = {} in\n.",
                                 self.send_channel,
                                 SEPARATOR,
                                 self.recv_channel,
@@ -149,7 +149,7 @@ pub mod extraction {
                                 f.write_str(&format!(" received {}\n{}", self.statement, n))
                             } else {
                                 f.write_str(&format!(
-                                    "in({}{}{},{}); let ={} = {} in\n{}",
+                                    "in({}{}{},{}); let =r{} = {} in\n{}",
                                     self.send_channel,
                                     SEPARATOR,
                                     self.recv_channel,
@@ -166,7 +166,7 @@ pub mod extraction {
                             }
                             else {
                                 f.write_str(&format!(
-                                    "in({}{}{},{}); let ={} = {} in\n{}",
+                                    "in({}{}{},{}); let =r{} = {} in\n{}",
                                     self.send_channel,
                                     SEPARATOR,
                                     self.recv_channel,
@@ -254,7 +254,9 @@ pub mod extraction {
                     }
                 }
             }
-            f.write_str("\nend")?;
+            if SEQUENCE_DIAGRAM_MODE {
+                f.write_str("\nend")?;
+            }
             Ok(())
         }
     }
@@ -742,6 +744,8 @@ pub mod extraction {
                             Direction::Out,
                             None,
                         );
+                        let internal_hashmap = env_variable.entry(*protocol).or_insert(HashMap::new());
+                        internal_hashmap.insert(node.statement.clone(), String::from(format!("rx{}", variable_count)));
                         let in_node = Node::new(
                             node.send_channel.clone(),
                             node.recv_channel.clone(),
